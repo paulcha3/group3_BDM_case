@@ -10,7 +10,7 @@ def load_data_from_bigquery():
         pd.DataFrame: Raw dataset
     """
     try:
-        key_path = "/Users/paulc/Downloads/credentials.json"
+        key_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
         credentials = service_account.Credentials.from_service_account_file(key_path)
         client = bigquery.Client(credentials=credentials, project=credentials.project_id)
         
@@ -31,3 +31,4 @@ def load_data_from_bigquery():
         print(f"Error loading data: {e}")
         return None
     
+
