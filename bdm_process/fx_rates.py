@@ -11,7 +11,9 @@ UNSUPPORTED = {"TWD"}
 TARGET_CCY = "EUR"
 
 # Project ID from environment variable (GitHub Secret)
-PROJECT_ID = os.environ["GCP_PROJECT_ID"]
+PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "").strip()
+if not PROJECT_ID:
+    raise ValueError("Missing env var GCP_PROJECT_ID (GitHub Secret).")
 
 # Dataset and tables (your current BigQuery source)
 BQ_DATASET = "patek_data"
@@ -33,6 +35,11 @@ def fx_rate(date: str, base: str, target: str = "EUR") -> float | None:
 
 
 def main():
+    # --- Debug prints (so you can confirm in GitHub Actions logs) ---
+    print("PROJECT_ID:", PROJECT_ID)
+    print("SOURCE_TABLE:", SOURCE_TABLE)
+    print("DEST_TABLE:", DEST_TABLE)
+
     # 1) Get unique (date, currency) pairs from BigQuery
     query = f"""
     SELECT DISTINCT
@@ -43,6 +50,12 @@ def main():
       AND currency IS NOT NULL
     """
     pairs = client.query(query).to_dataframe()
+    print("Pairs fetched:", len(pairs))
+
+    # If nothing to process, stop early (prevents creating an empty table silently)
+    if pairs.empty:
+        print("No (date, currency) pairs found. Nothing to write.")
+        return
 
     # 2) Call the FX API for each pair
     rows = []
@@ -71,4 +84,22 @@ def main():
         )
 
         # Light throttling to reduce the chance of API rate limits
+        if i % 50 == 0 and i > 0:
+            time.sleep(0.2)
 
+    df = pd.DataFrame(rows)
+    print("Rows to write:", len(df))
+
+    # 3) Load into BigQuery (overwrite each run)
+    job = client.load_table_from_dataframe(
+        df,
+        DEST_TABLE,
+        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE"),
+    )
+    job.result()
+
+    print(f"✅ FX table updated successfully: {DEST_TABLE} ({len(df)} rows)")
+
+
+if __name__ == "__main__":
+    main()
